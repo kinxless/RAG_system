@@ -1,0 +1,18 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+.env
+.env.*
+
+# Local/generated data
+chroma_db/
+cache.json
+cloud_links.json
+sync_checkpoint.json
+
+# Large local corpus (mount separately if needed)
+archive/
