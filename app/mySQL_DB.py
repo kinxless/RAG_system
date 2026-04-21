@@ -8,7 +8,7 @@ def get_connection():
     Create PostgreSQL connection using Neon DATABASE_URL.
     """
 
-    DATABASE_URL = os.getenv("postgresql://neondb_owner:npg_hPiO3XzGuZt2@ep-steep-bread-alwp3dk1.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require")
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
     if not DATABASE_URL:
         raise Exception(
