@@ -13,21 +13,20 @@ def sync_database():
 
         conn = get_connection()
 
-        cursor = conn.cursor(
-            dictionary=True
-        )
+        cursor = conn.cursor()
 
 
         # =========================
-        # GET TABLES
+        # GET TABLES (PostgreSQL)
         # =========================
 
-        cursor.execute(
-            "SHOW TABLES"
-        )
+        cursor.execute("""
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+        """)
 
         tables = cursor.fetchall()
-
 
         if not tables:
 
@@ -39,22 +38,17 @@ def sync_database():
         # PROCESS TABLES
         # =========================
 
-        for table_dict in tables:
+        for table in tables:
 
-            table_name = list(
-                table_dict.values()
-            )[0]
-
+            table_name = table["table_name"]
 
             print(
                 f"\nChecking table: {table_name}"
             )
 
-
             last_id = load_last_id(
                 table_name
             )
-
 
             query = f"""
             SELECT *
@@ -63,15 +57,12 @@ def sync_database():
             ORDER BY id ASC
             """
 
-
             cursor.execute(
                 query,
                 (last_id,)
             )
 
-
             rows = cursor.fetchall()
-
 
             if not rows:
 
@@ -101,10 +92,6 @@ def sync_database():
                             f"{k}: {v}"
                         )
 
-
-                    # =====================================
-                    # UPDATED TEXT FORMAT (THIS IS THE FIX)
-                    # =====================================
 
                     row_text = " | ".join(parts)
 
@@ -138,19 +125,16 @@ FULL DATABASE RECORD:
 {row_text}
 """
 
-
                     doc_id = (
                         f"{table_name}_"
                         f"{row['id']}"
                     )
-
 
                     print(
                         f"Embedding row "
                         f"{row['id']} "
                         f"from {table_name}"
                     )
-
 
                     add_text(
 
@@ -161,7 +145,6 @@ FULL DATABASE RECORD:
                         collection_name=table_name
 
                     )
-
 
                 except Exception as e:
 
@@ -183,17 +166,14 @@ FULL DATABASE RECORD:
                 new_last_id
             )
 
-
             print(
                 f"Synced {table_name} "
                 f"up to ID {new_last_id}"
             )
 
-
         cursor.close()
 
         conn.close()
-
 
     except Exception as e:
 
