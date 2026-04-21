@@ -3,8 +3,9 @@ from app.checkpoint import (
     save_last_id
 )
 
-from app.rag import add_text
 from app.mySQL_DB import get_connection
+
+import time
 
 
 def sync_database():
@@ -14,7 +15,6 @@ def sync_database():
         conn = get_connection()
 
         cursor = conn.cursor()
-
 
         # =========================
         # GET TABLES (PostgreSQL)
@@ -32,7 +32,6 @@ def sync_database():
 
             print("No tables found.")
             return
-
 
         # =========================
         # PROCESS TABLES
@@ -72,7 +71,6 @@ def sync_database():
 
                 continue
 
-
             # =========================
             # PROCESS ROWS
             # =========================
@@ -80,6 +78,9 @@ def sync_database():
             for row in rows:
 
                 try:
+
+                    # LAZY IMPORT (CRITICAL FIX)
+                    from app.rag import add_text
 
                     parts = []
 
@@ -91,7 +92,6 @@ def sync_database():
                         parts.append(
                             f"{k}: {v}"
                         )
-
 
                     row_text = " | ".join(parts)
 
@@ -137,13 +137,9 @@ FULL DATABASE RECORD:
                     )
 
                     add_text(
-
                         text,
-
                         doc_id,
-
                         collection_name=table_name
-
                     )
 
                 except Exception as e:
@@ -153,7 +149,6 @@ FULL DATABASE RECORD:
                         f"{row['id']} "
                         f"in {table_name}: {e}"
                     )
-
 
             # =========================
             # SAVE CHECKPOINT
@@ -180,3 +175,6 @@ FULL DATABASE RECORD:
         print("DATABASE SYNC ERROR:")
 
         print(e)
+
+    # IMPORTANT — slow sync rate
+    time.sleep(60)
