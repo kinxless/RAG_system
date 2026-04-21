@@ -1,35 +1,24 @@
-import mysql.connector
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 
 def get_connection():
-
-    return mysql.connector.connect(
-        host="127.0.0.1",
-        user="root",
-        password="",  # try empty password first
-        database="rag_trial"
-    )
-
-
-def get_rows_after(last_id):
-
-    conn = get_connection()
-
-    cursor = conn.cursor(dictionary=True)
-
-    query = """
-        SELECT id, content
-        FROM rag_trial_table
-        WHERE id > %s
-        ORDER BY id ASC
+    """
+    Create PostgreSQL connection using Neon DATABASE_URL.
     """
 
-    cursor.execute(query, (last_id,))
+    DATABASE_URL = os.getenv("postgresql://neondb_owner:npg_hPiO3XzGuZt2@ep-steep-bread-alwp3dk1.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require")
 
-    rows = cursor.fetchall()
+    if not DATABASE_URL:
+        raise Exception(
+            "DATABASE_URL environment variable not set."
+        )
 
-    cursor.close()
+    conn = psycopg2.connect(
+        DATABASE_URL,
+        sslmode="require",
+        cursor_factory=RealDictCursor
+    )
 
-    conn.close()
-
-    return rows
+    return conn
