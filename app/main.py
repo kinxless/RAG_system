@@ -885,30 +885,9 @@ def sync_db():
 # BACKGROUND SYNC LOOP
 # =========================
 
-#@app.on_event("startup")
-#async def start_background_sync():
-    global HTTP_ASYNC_CLIENT
-
-    if HTTP_ASYNC_CLIENT is None:
-        HTTP_ASYNC_CLIENT = httpx.AsyncClient(follow_redirects=True)
-
-    async def sync_loop():
-
-        while True:
-
-            try:
-
-                print("Running background sync...")
-
-                sync_database()
-
-            except Exception as e:
-
-                print("Sync error:", e)
-
-            await asyncio.sleep(APP_CONFIG.background_sync_interval_seconds)
-
-    asyncio.create_task(sync_loop())
+# Background sync is intentionally disabled here to avoid the memory crash
+# that prompted the earlier rollback. The app keeps only the HTTP client
+# startup/shutdown hooks below.
 
 @app.on_event("startup")
 async def startup_http_client():
