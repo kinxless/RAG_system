@@ -885,8 +885,8 @@ def sync_db():
 # BACKGROUND SYNC LOOP
 # =========================
 
-@app.on_event("startup")
-async def start_background_sync():
+#@app.on_event("startup")
+#async def start_background_sync():
     global HTTP_ASYNC_CLIENT
 
     if HTTP_ASYNC_CLIENT is None:
@@ -910,6 +910,14 @@ async def start_background_sync():
 
     asyncio.create_task(sync_loop())
 
+@app.on_event("startup")
+async def startup_http_client():
+    global HTTP_ASYNC_CLIENT
+
+    if HTTP_ASYNC_CLIENT is None:
+        HTTP_ASYNC_CLIENT = httpx.AsyncClient(
+            follow_redirects=True
+        )
 
 @app.on_event("shutdown")
 async def shutdown_http_client():
