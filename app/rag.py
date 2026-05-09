@@ -118,14 +118,16 @@ def extract_risks_from_docs(docs):
 
     risks = []
 
+    # Restrict surrounding whitespace to horizontal only ([ \t]) so the
+    # capture cannot bridge across newlines and pick up the literal
+    # "FULL DATABASE RECORD:" header when risk_description is empty.
+    pattern = re.compile(
+        r"risk(?:[ \t]|_|-)*description[ \t]*:[ \t]*([^\n]+)"
+    )
+
     for doc in docs:
 
-        matches = re.findall(
-            r"risk(?:\s|_|-)*description\s*:\s*(.+)",
-            doc.lower()
-        )
-
-        for m in matches:
+        for m in pattern.findall(doc.lower()):
 
             cleaned = m.strip()
 

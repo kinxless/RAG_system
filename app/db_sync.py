@@ -152,15 +152,16 @@ def sync_database():
                 or row.get("risk")
                 or row.get("case_name", "")
             )
+            # Inline values (single-line per field) so an empty field
+            # cannot let downstream regex captures bridge into the next
+            # field's header.
             text = (
-                f"\nTABLE NAME: {table_name}\n\n"
-                f"THIS RECORD REPRESENTS A DATABASE ENTRY.\n\n"
-                f"RECORD ID:\n{pk_val}\n\n"
-                f"IMPORTANT FIELDS:\n\n"
-                f"CASE NUMBER:\n{row.get('case_number', '')}\n\n"
-                f"CASE NAME:\n{row.get('case_name', '')}\n\n"
-                f"RISK DESCRIPTION:\n{risk_value}\n\n"
-                f"FULL DATABASE RECORD:\n{row_text}\n"
+                f"TABLE NAME: {table_name}\n"
+                f"RECORD ID: {pk_val}\n"
+                f"CASE NUMBER: {row.get('case_number', '')}\n"
+                f"CASE NAME: {row.get('case_name', '')}\n"
+                f"RISK DESCRIPTION: {risk_value}\n"
+                f"FULL DATABASE RECORD: {row_text}\n"
             )
             return {
                 "text": text,
