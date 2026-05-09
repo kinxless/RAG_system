@@ -7,6 +7,10 @@ pydantic
 # Vector store + embeddings
 chromadb
 sentence-transformers
+# transformers 4.50+ pulls in MoE/FP8 integrations whose torch.library.custom_op
+# call breaks against torch <2.7. Pin to the last release before that change so
+# the embedding model loads on common CUDA wheels.
+transformers==4.46.3
 
 # Document loaders
 pypdf
