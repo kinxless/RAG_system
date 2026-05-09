@@ -1,14 +1,14 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Header
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Header, Depends, Request
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
 import json
-import asyncio
 import traceback
 import os
 import tempfile
@@ -34,7 +34,6 @@ from app.cloud_links import (
 
 
 APP_CONFIG = load_app_config()
-HTTP_ASYNC_CLIENT: Optional[httpx.AsyncClient] = None
 
 
 # =========================
@@ -178,16 +177,18 @@ USER QUESTION:
 """
 
 
-def _get_http_client() -> httpx.AsyncClient:
-    if HTTP_ASYNC_CLIENT is None:
+def get_http_client(request: Request) -> httpx.AsyncClient:
+    client = getattr(request.app.state, "http_client", None)
+    if client is None:
         raise HTTPException(
             status_code=503,
             detail="HTTP client not initialized."
         )
-    return HTTP_ASYNC_CLIENT
+    return client
 
 
 async def _ingest_cloud_source(
+    http_client: httpx.AsyncClient,
     source_url: str,
     tags: list[str],
     metadata: dict,
@@ -196,7 +197,6 @@ async def _ingest_cloud_source(
     tmp_path = None
 
     try:
-        http_client = _get_http_client()
         async with http_client.stream(
             "GET",
             source_url,
@@ -278,10 +278,22 @@ async def _ingest_cloud_source(
 # FASTAPI APP
 # =========================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Single shared HTTP client for the process. Lives on app.state so
+    # endpoints can resolve it via Depends(get_http_client).
+    app.state.http_client = httpx.AsyncClient(follow_redirects=True)
+    try:
+        yield
+    finally:
+        await app.state.http_client.aclose()
+
+
 app = FastAPI(
     title="RAG AI Backend",
     description="Recursive RAG + Graph + MySQL Sync API",
-    version="1.2"
+    version="1.3",
+    lifespan=lifespan,
 )
 
 
@@ -289,10 +301,13 @@ app = FastAPI(
 # CORS
 # =========================
 
+# Wildcard origins are incompatible with credentialed requests per the
+# CORS spec, so credentials are off. If the UI ever needs cookies/auth
+# headers, replace ["*"] with an explicit list of trusted origins.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -430,7 +445,8 @@ async def upload(
 @app.post("/import_cloud")
 async def import_cloud(
     data: CloudImportRequest,
-    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID"),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
 ):
 
     try:
@@ -449,6 +465,7 @@ async def import_cloud(
         normalized_tags = _normalize_tags_list(data.tags)
 
         return await _ingest_cloud_source(
+            http_client=http_client,
             source_url=source_url,
             tags=normalized_tags,
             metadata=data.metadata,
@@ -527,7 +544,8 @@ async def remove_link(link_id: str):
 async def import_cloud_link(
     link_id: str,
     data: Optional[CloudLinkImportRequest] = None,
-    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID"),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
 ):
     if data is None:
         data = CloudLinkImportRequest()
@@ -552,6 +570,7 @@ async def import_cloud_link(
     print(f"\nImporting cloud link {link_id}: {link.get('url')}")
 
     result = await _ingest_cloud_source(
+        http_client=http_client,
         source_url=str(link.get("url", "")).strip(),
         tags=merged_tags,
         metadata=merged_metadata,
@@ -569,18 +588,17 @@ async def import_cloud_link(
 
 @app.post("/ask_rag")
 async def ask_rag(
-    question: str,
-    tag: Optional[str] = None,
-    client_id: Optional[str] = None,
-    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID")
+    data: QuestionRequest,
+    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID"),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
 ):
 
     try:
 
         print("\n--- NEW REQUEST ---")
 
-        question = question.strip().lower()
-        tag = _normalize_tag(tag)
+        question = data.question.strip().lower()
+        tag = _normalize_tag(data.tag)
 
         print("Question:", question)
 
@@ -588,7 +606,7 @@ async def ask_rag(
         # CACHE
         # =========================
 
-        normalized_client_id = _resolve_client_id(client_id, x_client_id)
+        normalized_client_id = _resolve_client_id(data.client_id, x_client_id)
         cache_key = _build_cache_key(question, tag, normalized_client_id)
 
         cached = get_cached_response(cache_key)
@@ -648,7 +666,6 @@ async def ask_rag(
         prompt = _build_prompt(context, question)
 
         print("Calling Ollama...")
-        http_client = _get_http_client()
 
         response = await http_client.post(
             APP_CONFIG.ollama_url,
@@ -719,7 +736,8 @@ async def ask_rag(
 @app.post("/ask_rag_stream")
 async def ask_rag_stream(
     data: QuestionRequest,
-    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID")
+    x_client_id: Optional[str] = Header(default=None, alias="X-Client-ID"),
+    http_client: httpx.AsyncClient = Depends(get_http_client),
 ):
 
     try:
@@ -801,7 +819,6 @@ async def ask_rag_stream(
             try:
 
                 print("Streaming from Ollama...")
-                http_client = _get_http_client()
 
                 async with http_client.stream(
                     "POST",
@@ -908,26 +925,6 @@ def sync_db():
         )
 
 
-# =========================
-# BACKGROUND SYNC LOOP
-# =========================
-
 # Background sync is intentionally disabled here to avoid the memory crash
-# that prompted the earlier rollback. The app keeps only the HTTP client
-# startup/shutdown hooks below.
-
-@app.on_event("startup")
-async def startup_http_client():
-    global HTTP_ASYNC_CLIENT
-
-    if HTTP_ASYNC_CLIENT is None:
-        HTTP_ASYNC_CLIENT = httpx.AsyncClient(
-            follow_redirects=True
-        )
-
-@app.on_event("shutdown")
-async def shutdown_http_client():
-    global HTTP_ASYNC_CLIENT
-    if HTTP_ASYNC_CLIENT is not None:
-        await HTTP_ASYNC_CLIENT.aclose()
-        HTTP_ASYNC_CLIENT = None
+# that prompted the earlier rollback. The HTTP client is now managed by the
+# lifespan context manager defined above.
