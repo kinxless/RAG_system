@@ -16,7 +16,9 @@ CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(DATA_DIR, "chroma_db"))
 
 COLLECTION_NAME = "rasid_cases"
 
-EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+# Embedding model. Default is English-only; for multilingual data set
+# EMBED_MODEL_NAME=paraphrase-multilingual-MiniLM-L12-v2 (or larger).
+EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "all-MiniLM-L6-v2")
 
 DEFAULT_K = 20
 CLIENT_COLLECTION_PREFIX = "client"
@@ -348,6 +350,72 @@ def add_text(
     else:
 
         print("No documents added.")
+
+
+# =========================
+# BULK ADD (BATCHED — for db_sync etc.)
+# =========================
+
+def add_texts_bulk(
+    items,
+    collection_name=None,
+    client_id=None,
+):
+    """Embed and persist many (text, source) pairs in a single Chroma write.
+
+    items: list of dicts with keys {text, source, tags?, extra_metadata?}.
+    All items go into the same collection. Per-item Chroma overhead is
+    amortized across the whole batch, so this is ~50x faster than calling
+    add_text() per row.
+    """
+    _ensure_initialized()
+
+    if not items:
+        return
+
+    normalized_client = normalize_client_id(client_id)
+    collection_name = _resolve_collection_name(
+        collection_name=collection_name,
+        client_id=normalized_client,
+    )
+    normalized_client = normalized_client or "shared"
+
+    collection = _get_or_create_collection_by_name(collection_name)
+
+    ids = []
+    documents = []
+    metadatas = []
+
+    for item in items:
+        text = item.get("text", "")
+        source = item.get("source", "")
+        if not text or not text.strip():
+            continue
+
+        normalized_tags = _normalize_tags(item.get("tags"))
+        tags_csv = ",".join(normalized_tags)
+        sanitized_extra = _sanitize_extra_metadata(item.get("extra_metadata"))
+
+        chunks = split_text(text)
+        for i, chunk in enumerate(chunks):
+            ids.append(f"{source}_{uuid.uuid4()}")
+            documents.append(chunk)
+            metadata = {
+                "source": source,
+                "chunk_index": i,
+                "collection": collection_name,
+                "tags": tags_csv,
+                "client_id": normalized_client,
+            }
+            metadata.update(sanitized_extra)
+            metadatas.append(metadata)
+
+    if documents:
+        collection.add(ids=ids, documents=documents, metadatas=metadatas)
+        print(
+            f"Bulk added {len(documents)} chunks "
+            f"from {len(items)} items to {collection_name}"
+        )
 
 
 # =========================
