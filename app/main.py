@@ -303,8 +303,23 @@ app.add_middleware(
 # =========================
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@app.get("/ui")
+@app.get("/ui/")
+def ui_index():
+    index_path = STATIC_DIR / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="UI not built into this image.")
+    return FileResponse(str(index_path), media_type="text/html")
+
+
 if STATIC_DIR.is_dir():
-    app.mount("/ui", StaticFiles(directory=str(STATIC_DIR), html=True), name="ui")
+    app.mount(
+        "/ui/static",
+        StaticFiles(directory=str(STATIC_DIR)),
+        name="ui_static",
+    )
 
 
 # =========================
