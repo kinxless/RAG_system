@@ -3,7 +3,8 @@ import os
 from typing import Optional
 
 
-CACHE_FILE = "cache.json"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+CACHE_FILE = os.getenv("CACHE_FILE", os.path.join(DATA_DIR, "cache.json"))
 DEFAULT_CACHE_TTL_SECONDS = 86400
 _cache_store = {}
 _redis_client = None
@@ -48,6 +49,9 @@ def _load_file_cache() -> None:
 
 
 def _save_file_cache() -> None:
+    cache_dir = os.path.dirname(CACHE_FILE)
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
     with open(CACHE_FILE, "w", encoding="utf-8") as f:
         json.dump(_cache_store, f, ensure_ascii=True)
 

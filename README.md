@@ -104,7 +104,56 @@ Fully containerized system.
 Run with:
 
 ```bash
-docker-compose up --build
+docker compose up --build
+```
+
+---
+
+## RunPod Deployment
+
+This repo ships with everything needed to run on a RunPod pod (GPU or CPU) with the API, Ollama, and MySQL bundled, and persistent state on a network volume.
+
+### 1. Create a network volume (one-time)
+
+In the RunPod console, create a **Network Volume** (e.g. 50–100 GB). This will hold:
+
+- ChromaDB embeddings
+- MySQL data
+- Ollama model weights
+- HuggingFace embedding model cache
+
+### 2. Launch a pod
+
+- **Template:** any Ubuntu/CUDA image with Docker (e.g. RunPod's "Docker" or "PyTorch" templates).
+- **GPU:** any modern NVIDIA card if you want fast Ollama inference (CPU works too, just slower).
+- **Volume mount path:** `/workspace` (mounting the network volume from step 1).
+- **Expose HTTP ports:** `8000` (FastAPI) and optionally `11434` (Ollama).
+
+### 3. SSH into the pod and deploy
+
+```bash
+git clone <your repo> /app && cd /app
+cp .env.runpod.example .env       # then edit secrets
+docker compose up -d --build
+```
+
+The first start downloads the Ollama model and the sentence-transformers embedding model into `/workspace`; subsequent restarts are fast.
+
+### 4. Verify
+
+```bash
+curl http://localhost:8000/                  # health check
+curl http://localhost:11434/api/tags         # Ollama models
+docker compose logs -f api                   # tail API logs
+```
+
+The API is reachable at `https://<pod-id>-8000.proxy.runpod.net/` once RunPod's HTTP proxy picks up the exposed port.
+
+### Notes
+
+- All persistent state lives under `/workspace`; pod recreations (kept on the same network volume) keep ChromaDB, MySQL data, and downloaded models.
+- For GPU pods, uncomment the `deploy.resources` block in `docker-compose.yml`.
+- To use an external MySQL instead, drop the `mysql` service and set `DATABASE_URL` directly in `.env`.
 
 ---
 

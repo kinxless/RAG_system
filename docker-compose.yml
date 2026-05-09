@@ -1,0 +1,56 @@
+# Compose file for running the API + bundled Ollama alongside MySQL.
+# On a RunPod pod, mount /workspace to a network volume so chroma_db,
+# ollama models, and MySQL data all survive pod recreation.
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rag}
+      MYSQL_USER: ${MYSQL_USER:-rag}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ragpass}
+    volumes:
+      - /workspace/mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      DATA_DIR: /workspace
+      CHROMA_PATH: /workspace/chroma_db
+      CACHE_FILE: /workspace/cache.json
+      CHECKPOINT_FILE: /workspace/sync_checkpoint.json
+      CLOUD_LINKS_FILE: /workspace/cloud_links.json
+      OLLAMA_MODELS: /workspace/ollama_models
+      HF_HOME: /workspace/hf_cache
+      SENTENCE_TRANSFORMERS_HOME: /workspace/hf_cache
+      OLLAMA_URL: http://127.0.0.1:11434/api/generate
+      MODEL_NAME: ${MODEL_NAME:-phi3:mini}
+      DATABASE_URL: mysql://${MYSQL_USER:-rag}:${MYSQL_PASSWORD:-ragpass}@mysql:3306/${MYSQL_DATABASE:-rag}
+      REDIS_URL: ${REDIS_URL:-}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-86400}
+    ports:
+      - "8000:8000"
+      - "11434:11434"
+    volumes:
+      - /workspace:/workspace
+    # GPU: uncomment on a RunPod GPU pod (requires nvidia-container-toolkit, which RunPod provides).
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

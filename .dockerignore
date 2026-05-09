@@ -16,3 +16,8 @@ sync_checkpoint.json
 
 # Large local corpus (mount separately if needed)
 archive/
+
+# Local docker-compose state and IDE
+.vscode/
+.idea/
+docker-data/

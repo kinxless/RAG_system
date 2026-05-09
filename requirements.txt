@@ -2,4 +2,19 @@ fastapi
 uvicorn[standard]
 httpx
 python-multipart
-psycopg2-binary
+pydantic
+
+# Vector store + embeddings
+chromadb
+sentence-transformers
+
+# Document loaders
+pypdf
+
+# Persistence
+mysql-connector-python
+neo4j
+
+# Optional cache
+redis
+hiredis

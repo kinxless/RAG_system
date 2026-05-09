@@ -6,7 +6,11 @@ import uuid
 from typing import Optional
 
 
-CLOUD_LINKS_FILE = "cloud_links.json"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+CLOUD_LINKS_FILE = os.getenv(
+    "CLOUD_LINKS_FILE",
+    os.path.join(DATA_DIR, "cloud_links.json")
+)
 _lock = threading.Lock()
 
 
@@ -29,6 +33,7 @@ def _read_store() -> dict:
 
 def _write_store(data: dict) -> None:
     directory = os.path.dirname(os.path.abspath(CLOUD_LINKS_FILE)) or "."
+    os.makedirs(directory, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         "w",
         encoding="utf-8",

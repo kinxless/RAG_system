@@ -11,9 +11,10 @@ from app.client_identity import normalize_client_id
 # CONFIG
 # =========================
 
-CHROMA_PATH = "chroma_db"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+CHROMA_PATH = os.getenv("CHROMA_PATH", os.path.join(DATA_DIR, "chroma_db"))
 
-COLLECTION_NAME = "rag_collection"
+COLLECTION_NAME = "rasid_cases"
 
 EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
 
@@ -365,81 +366,92 @@ def vector_keyword_search(
 
     print("Query:", query)
 
-    target_collection_name = _resolve_collection_name(client_id=client_id)
-
     output_docs = []
 
-    print(f"\nSearching collection: {target_collection_name}")
-
-    collection = _get_or_create_collection_by_name(target_collection_name)
-
-    try:
-
-        results = collection.query(
-            query_texts=[query],
-            n_results=max(1, int(k))
-        )
-
-    except Exception as e:
-
-        print(
-            f"Query error in {target_collection_name}:",
-            e
-        )
-        return []
-
-    documents = results.get(
-        "documents",
-        [[]]
-    )[0]
-
-    metadatas = results.get(
-        "metadatas",
-        [[]]
-    )[0]
+    # FIX — search ALL collections instead of just rag_collection
+    collections = client.list_collections()
 
     print(
-        f"Found {len(documents)} results in {target_collection_name}"
+        f"\nSearching across {len(collections)} collections"
     )
 
-    for i in range(len(documents)):
+    for col_info in collections:
 
-        doc = documents[i]
+        target_collection_name = col_info.name
 
-        metadata = {}
+        print(f"\nSearching collection: {target_collection_name}")
 
-        if i < len(metadatas):
-
-            metadata = metadatas[i]
-
-        source = metadata.get(
-            "source",
-            "unknown"
+        collection = _get_or_create_collection_by_name(
+            target_collection_name
         )
 
-        chunk_index = metadata.get(
-            "chunk_index",
-            "unknown"
-        )
+        try:
 
-        if not _matches_tag_filter(metadata, tag_filter):
+            results = collection.query(
+                query_texts=[query],
+                n_results=max(1, int(k))
+            )
+
+        except Exception as e:
+
+            print(
+                f"Query error in {target_collection_name}:",
+                e
+            )
             continue
 
-        tags_value = metadata.get(
-            "tags",
-            "none"
-        ) or "none"
-        client_value = metadata.get(
-            "client_id",
-            "shared"
-        ) or "shared"
-        extra_meta_items = []
-        for meta_key, meta_value in metadata.items():
-            if str(meta_key).startswith("meta_"):
-                extra_meta_items.append(f"{meta_key[5:]}={meta_value}")
-        extra_meta_text = ", ".join(extra_meta_items) if extra_meta_items else "none"
+        documents = results.get(
+            "documents",
+            [[]]
+        )[0]
 
-        formatted_doc = f"""
+        metadatas = results.get(
+            "metadatas",
+            [[]]
+        )[0]
+
+        print(
+            f"Found {len(documents)} results in {target_collection_name}"
+        )
+
+        for i in range(len(documents)):
+
+            doc = documents[i]
+
+            metadata = {}
+
+            if i < len(metadatas):
+
+                metadata = metadatas[i]
+
+            source = metadata.get(
+                "source",
+                "unknown"
+            )
+
+            chunk_index = metadata.get(
+                "chunk_index",
+                "unknown"
+            )
+
+            if not _matches_tag_filter(metadata, tag_filter):
+                continue
+
+            tags_value = metadata.get(
+                "tags",
+                "none"
+            ) or "none"
+            client_value = metadata.get(
+                "client_id",
+                "shared"
+            ) or "shared"
+            extra_meta_items = []
+            for meta_key, meta_value in metadata.items():
+                if str(meta_key).startswith("meta_"):
+                    extra_meta_items.append(f"{meta_key[5:]}={meta_value}")
+            extra_meta_text = ", ".join(extra_meta_items) if extra_meta_items else "none"
+
+            formatted_doc = f"""
 {doc}
 
 -----------------------
@@ -453,9 +465,9 @@ Client: {client_value}
 Metadata: {extra_meta_text}
 """
 
-        output_docs.append(
-            formatted_doc
-        )
+            output_docs.append(
+                formatted_doc
+            )
 
     print(
         "\nTotal documents returned:",

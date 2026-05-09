@@ -8,79 +8,147 @@ from app.mySQL_DB import get_connection
 import time
 
 
+# =========================
+# GET ALL TABLES + PRIMARY KEYS
+# =========================
+
+def get_tables_with_pk(cursor):
+    """
+    Returns a dict of {table_name: pk_column}.
+    Tables with no detectable primary key are skipped.
+    """
+
+    cursor.execute("""
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+        AND table_type = 'BASE TABLE'
+    """)
+
+    table_names = [row["table_name"] for row in cursor.fetchall()]
+
+    print("\n=== Tables Found ===")
+
+    result = {}
+
+    for table_name in table_names:
+
+        cursor.execute("""
+            SELECT column_name,
+                   CASE
+                       WHEN column_key = 'PRI'                THEN 1
+                       WHEN column_name = 'id'                THEN 2
+                       WHEN extra LIKE '%%auto_increment%%'   THEN 3
+                       ELSE 4
+                   END AS priority
+            FROM information_schema.columns
+            WHERE table_schema = DATABASE()
+            AND table_name = %s
+            AND (
+                column_key = 'PRI'
+                OR column_name = 'id'
+                OR extra LIKE '%%auto_increment%%'
+            )
+            ORDER BY priority ASC
+            LIMIT 1
+        """, (table_name,))
+
+        pk_row = cursor.fetchone()
+
+        if pk_row:
+            pk_col = pk_row["column_name"]
+            result[table_name] = pk_col
+            print(f" - {table_name}  (pk: {pk_col})")
+        else:
+            print(f" - {table_name}  (SKIPPED — no id/pk/auto_increment column)")
+
+    return result
+
+
+# =========================
+# ETA FORMATTER
+# =========================
+
+def _format_eta(seconds):
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    elif seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    else:
+        return f"{seconds / 3600:.1f}h"
+
+
+# =========================
+# MAIN SYNC FUNCTION
+# =========================
+
 def sync_database():
 
     try:
 
         conn = get_connection()
 
-        cursor = conn.cursor()
+        cursor = conn.cursor(dictionary=True)
 
-        # =========================
-        # GET TABLES (PostgreSQL)
-        # =========================
-
-        cursor.execute("""
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public'
-        """)
-
-        tables = cursor.fetchall()
+        tables = get_tables_with_pk(cursor)
 
         if not tables:
-
             print("No tables found.")
             return
 
-        # =========================
-        # PROCESS TABLES
-        # =========================
+        # --- Pre-fetch all new rows across every table ---
+        # This lets us know the exact total before embedding starts.
 
-        for table in tables:
+        table_rows = {}
+        total_rows = 0
 
-            table_name = table["table_name"]
+        for table_name, pk_col in tables.items():
 
-            print(
-                f"\nChecking table: {table_name}"
-            )
-
-            last_id = load_last_id(
-                table_name
-            )
-
-            query = f"""
-            SELECT *
-            FROM {table_name}
-            WHERE id > %s
-            ORDER BY id ASC
-            """
+            last_id = load_last_id(table_name)
 
             cursor.execute(
-                query,
+                f"SELECT * FROM `{table_name}` WHERE `{pk_col}` > %s ORDER BY `{pk_col}` ASC",
                 (last_id,)
             )
 
             rows = cursor.fetchall()
+            table_rows[table_name] = rows
+            total_rows += len(rows)
+
+            print(
+                f"  {table_name}: {len(rows)} new rows"
+            )
+
+        if total_rows == 0:
+            print("\nNo new rows to embed.")
+            cursor.close()
+            conn.close()
+            return
+
+        print(f"\n{'=' * 50}")
+        print(f"  STARTING EMBEDDING — {total_rows} rows total")
+        print(f"{'=' * 50}\n")
+
+        from app.rag import add_text
+
+        rows_done = 0
+        session_start = time.time()
+
+        for table_name, pk_col in tables.items():
+
+            rows = table_rows[table_name]
 
             if not rows:
-
-                print(
-                    f"No new rows in {table_name}."
-                )
-
+                print(f"  Skipping {table_name} — no new rows.\n")
                 continue
 
-            # =========================
-            # PROCESS ROWS
-            # =========================
+            print(f"\n--- {table_name} ({len(rows)} rows) ---")
 
             for row in rows:
 
-                try:
+                pk_val = row.get(pk_col, "")
 
-                    # LAZY IMPORT (CRITICAL FIX)
-                    from app.rag import add_text
+                try:
 
                     parts = []
 
@@ -89,9 +157,7 @@ def sync_database():
                         if v is None:
                             continue
 
-                        parts.append(
-                            f"{k}: {v}"
-                        )
+                        parts.append(f"{k}: {v}")
 
                     row_text = " | ".join(parts)
 
@@ -108,7 +174,7 @@ TABLE NAME: {table_name}
 THIS RECORD REPRESENTS A DATABASE ENTRY.
 
 RECORD ID:
-{row.get("id", "")}
+{pk_val}
 
 IMPORTANT FIELDS:
 
@@ -125,16 +191,9 @@ FULL DATABASE RECORD:
 {row_text}
 """
 
-                    doc_id = (
-                        f"{table_name}_"
-                        f"{row['id']}"
-                    )
+                    doc_id = f"{table_name}_{pk_val}"
 
-                    print(
-                        f"Embedding row "
-                        f"{row['id']} "
-                        f"from {table_name}"
-                    )
+                    row_start = time.time()
 
                     add_text(
                         text,
@@ -142,39 +201,60 @@ FULL DATABASE RECORD:
                         collection_name=table_name
                     )
 
-                except Exception as e:
+                    row_elapsed = time.time() - row_start
+                    rows_done += 1
 
-                    print(
-                        f"Row error "
-                        f"{row['id']} "
-                        f"in {table_name}: {e}"
+                    elapsed_total = time.time() - session_start
+                    avg_per_row = elapsed_total / rows_done
+                    remaining = total_rows - rows_done
+                    eta_seconds = remaining * avg_per_row
+
+                    eta_str = (
+                        "done"
+                        if remaining == 0
+                        else f"ETA {_format_eta(eta_seconds)}"
                     )
 
-            # =========================
-            # SAVE CHECKPOINT
-            # =========================
+                    print(
+                        f"  [{rows_done}/{total_rows}] "
+                        f"row {pk_val} | "
+                        f"{row_elapsed:.2f}s | "
+                        f"{eta_str}"
+                    )
 
-            new_last_id = rows[-1]["id"]
+                except Exception as e:
 
-            save_last_id(
-                table_name,
-                new_last_id
-            )
+                    rows_done += 1
 
-            print(
-                f"Synced {table_name} "
-                f"up to ID {new_last_id}"
-            )
+                    print(
+                        f"  [{rows_done}/{total_rows}] "
+                        f"ERROR row {pk_val} in {table_name}: {e}"
+                    )
+
+            if rows:
+
+                new_last_id = rows[-1][pk_col]
+
+                save_last_id(table_name, new_last_id)
+
+                print(
+                    f"  Checkpoint saved: {table_name} up to ID {new_last_id}"
+                )
+
+        total_elapsed = time.time() - session_start
+
+        print(f"\n{'=' * 50}")
+        print(
+            f"  DONE — {rows_done}/{total_rows} rows embedded "
+            f"in {_format_eta(total_elapsed)}"
+        )
+        print(f"{'=' * 50}\n")
 
         cursor.close()
-
         conn.close()
 
     except Exception as e:
 
         print("DATABASE SYNC ERROR:")
-
         print(e)
-
-    # IMPORTANT — slow sync rate
-    time.sleep(60)
+        raise

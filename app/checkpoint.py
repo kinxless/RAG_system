@@ -1,7 +1,11 @@
 import json
 import os
 
-CHECKPOINT_FILE = "sync_checkpoint.json"
+DATA_DIR = os.getenv("DATA_DIR", ".")
+CHECKPOINT_FILE = os.getenv(
+    "CHECKPOINT_FILE",
+    os.path.join(DATA_DIR, "sync_checkpoint.json")
+)
 
 
 def load_last_id(table_name):
@@ -55,6 +59,10 @@ def save_last_id(
             data = {}
 
     data[table_name] = last_id
+
+    checkpoint_dir = os.path.dirname(CHECKPOINT_FILE)
+    if checkpoint_dir:
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
     with open(
         CHECKPOINT_FILE,
