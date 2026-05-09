@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAG Test Panel</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --panel-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --ok: #4ade80;
+    --err: #f87171;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  header .health { font-size: 13px; color: var(--muted); }
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 24px;
+    display: grid;
+    gap: 24px;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  section h2 {
+    margin: 0 0 14px;
+    font-size: 15px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  label { display: block; margin-bottom: 8px; font-size: 13px; color: var(--muted); }
+  input[type=file], textarea, button {
+    font: inherit;
+  }
+  input[type=file] {
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    width: 100%;
+  }
+  textarea {
+    width: 100%;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    resize: vertical;
+    min-height: 90px;
+  }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+  button {
+    background: var(--accent);
+    color: #0b1220;
+    border: none;
+    padding: 9px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    margin-top: 10px;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: var(--panel-2); color: var(--text); }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .status {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    font-size: 13px;
+    white-space: pre-wrap;
+    min-height: 1em;
+  }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .answer {
+    margin-top: 12px;
+    padding: 14px 16px;
+    background: #0b1220;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    white-space: pre-wrap;
+    min-height: 4em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  .meta {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RAG Test Panel</h1>
+  <span class="health" id="health">checking…</span>
+</header>
+
+<main>
+
+  <section>
+    <h2>1. Upload a document</h2>
+    <label for="file">PDF, DOCX, MD, JSON, or TXT</label>
+    <input id="file" type="file" accept=".pdf,.docx,.md,.json,.txt,.html" />
+    <div class="row">
+      <button id="uploadBtn">Upload</button>
+    </div>
+    <div class="status" id="uploadStatus"></div>
+  </section>
+
+  <section>
+    <h2>2. Ask a question</h2>
+    <label for="question">Question</label>
+    <textarea id="question" placeholder="What does the paper say about…"></textarea>
+    <div class="row">
+      <button id="askBtn">Ask (streaming)</button>
+      <button id="clearBtn" class="secondary">Clear</button>
+    </div>
+    <div class="answer" id="answer"></div>
+    <div class="meta" id="answerMeta"></div>
+  </section>
+
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  // Health check.
+  fetch("/").then(r => r.json()).then(d => {
+    $("health").textContent = d.status || "ok";
+    $("health").style.color = "var(--ok)";
+  }).catch(() => {
+    $("health").textContent = "offline";
+    $("health").style.color = "var(--err)";
+  });
+
+  // Upload.
+  $("uploadBtn").addEventListener("click", async () => {
+    const fileInput = $("file");
+    const status = $("uploadStatus");
+    const file = fileInput.files[0];
+    if (!file) {
+      status.textContent = "Pick a file first.";
+      status.className = "status err";
+      return;
+    }
+    status.textContent = "Uploading & indexing…";
+    status.className = "status";
+    $("uploadBtn").disabled = true;
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await fetch("/upload", { method: "POST", body: fd });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || r.statusText);
+      status.textContent = `Indexed: ${file.name}`;
+      status.className = "status ok";
+    } catch (e) {
+      status.textContent = "Upload failed: " + e.message;
+      status.className = "status err";
+    } finally {
+      $("uploadBtn").disabled = false;
+    }
+  });
+
+  // Ask (streaming).
+  $("askBtn").addEventListener("click", async () => {
+    const q = $("question").value.trim();
+    const out = $("answer");
+    const meta = $("answerMeta");
+    if (!q) {
+      out.textContent = "Enter a question.";
+      return;
+    }
+    out.textContent = "";
+    meta.textContent = "Calling model…";
+    $("askBtn").disabled = true;
+    const t0 = performance.now();
+    try {
+      const r = await fetch("/ask_rag_stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: q }),
+      });
+      if (!r.ok) {
+        const text = await r.text();
+        throw new Error(text || r.statusText);
+      }
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let firstByte = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (firstByte === null) firstByte = performance.now();
+        out.textContent += decoder.decode(value, { stream: true });
+      }
+      const t1 = performance.now();
+      const ttfb = firstByte ? Math.round(firstByte - t0) : 0;
+      meta.textContent = `first byte ${ttfb} ms · total ${Math.round(t1 - t0)} ms`;
+    } catch (e) {
+      out.textContent = "Error: " + e.message;
+    } finally {
+      $("askBtn").disabled = false;
+    }
+  });
+
+  $("clearBtn").addEventListener("click", () => {
+    $("answer").textContent = "";
+    $("answerMeta").textContent = "";
+    $("question").value = "";
+  });
+</script>
+
+</body>
+</html>
