@@ -37,7 +37,7 @@ services:
       HF_HOME: /workspace/hf_cache
       SENTENCE_TRANSFORMERS_HOME: /workspace/hf_cache
       OLLAMA_URL: http://127.0.0.1:11434/api/generate
-      MODEL_NAME: ${MODEL_NAME:-phi3:mini}
+      MODEL_NAME: ${MODEL_NAME:-qwen2.5:14b}
       DATABASE_URL: mysql://${MYSQL_USER:-rag}:${MYSQL_PASSWORD:-ragpass}@mysql:3306/${MYSQL_DATABASE:-rag}
       REDIS_URL: ${REDIS_URL:-}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-86400}

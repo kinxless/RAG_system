@@ -17,7 +17,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     OLLAMA_MODELS=/workspace/ollama_models \
     HF_HOME=/workspace/hf_cache \
     SENTENCE_TRANSFORMERS_HOME=/workspace/hf_cache \
-    MODEL_NAME=phi3:mini
+    MODEL_NAME=qwen2.5:14b
 
 # System deps + Ollama installer prerequisites.
 RUN apt-get update && apt-get install -y --no-install-recommends \
