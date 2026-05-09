@@ -18,14 +18,16 @@ def get_tables_with_pk(cursor):
     Tables with no detectable primary key are skipped.
     """
 
+    # MySQL 8 returns information_schema column names UPPERCASE in result rows,
+    # so we alias to predictable lowercase keys.
     cursor.execute("""
-        SELECT table_name
+        SELECT table_name AS name
         FROM information_schema.tables
         WHERE table_schema = DATABASE()
         AND table_type = 'BASE TABLE'
     """)
 
-    table_names = [row["table_name"] for row in cursor.fetchall()]
+    table_names = [row["name"] for row in cursor.fetchall()]
 
     print("\n=== Tables Found ===")
 
@@ -34,7 +36,7 @@ def get_tables_with_pk(cursor):
     for table_name in table_names:
 
         cursor.execute("""
-            SELECT column_name,
+            SELECT column_name AS name,
                    CASE
                        WHEN column_key = 'PRI'                THEN 1
                        WHEN column_name = 'id'                THEN 2
@@ -56,7 +58,7 @@ def get_tables_with_pk(cursor):
         pk_row = cursor.fetchone()
 
         if pk_row:
-            pk_col = pk_row["column_name"]
+            pk_col = pk_row["name"]
             result[table_name] = pk_col
             print(f" - {table_name}  (pk: {pk_col})")
         else:
